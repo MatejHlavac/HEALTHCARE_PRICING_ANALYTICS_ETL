@@ -10,19 +10,27 @@ Dáta zachytávajú proces dohadovania cien medzi nemocnicami a poisťovňami. O
 V datasete sa nachádzajú hlavne textové informácie (názvy nemocníc, štáty, popisy lekárskych úkonov) a dôležité číselné údaje, ako sú samotné ceny.
 
 ### Popis tabuliek, s ktorými pracujeme:
-**1. ALL_RATES:** Táto tabuľka obsahuje všetky dostupné údaje v jednej veľkej štruktúre. Nájdeme v nej informácie o cenách, poskytovateľoch aj službách. Pre náš ETL proces je to hlavný zdroj, z ktorého budeme vyberať dôležité stĺpce a čistiť ich.
+**1. ALL_RATES:** Hoci táto tabuľka obsahuje všetky údaje v jednej veľkej štruktúre, pre náš projekt slúži primárne ako podporný zdroj. Využívame ju na vytiahnutie doplňujúcich atribútov (napr. mesto a štát), ktoré v základnom zozname poskytovateľov chýbali.
 
-**2. NEGOTIATED_RATES:** Ide o transakčnú tabuľku, kde sú uložené samotné vyjednané ceny a termíny ich platnosti. Je to kľúčový zdroj pre našu faktovú tabuľku.
+**2. NEGOTIATED_RATES:** Ide o hlavnú transakčnú tabuľku, kde sú uložené samotné vyjednané ceny a termíny ich platnosti. Spolu s tabuľkami služieb a poskytovateľov tvorí základ pre našu faktovú tabuľku.
 
-**3. SERVICE_DEFINITIONS:** Táto tabuľka funguje ako číselník lekárskych úkonov. Obsahuje kódy a názvy zákrokov.
+**3. SERVICE_DEFINITIONS:** Táto tabuľka funguje ako číselník lekárskych úkonov. Obsahuje oficiálne kódy a názvy zákrokov, čo nám umožňuje presne identifikovať, za čo sa platí.
 
-**4. PROVIDER_REFERENCES:** Tu sú uložené detaily o nemocniciach a lekároch. Obsahuje ich názvy a identifikačné čísla.
+**4. PROVIDER_REFERENCES:** Tu sú uložené základné detaily o nemocniciach a lekároch, ako sú ich mená a identifikačné čísla (NPI).
 
-**5/6. METRICS a VOLUME:** Tieto tabuľky obsahujú už vopred vypočítané štatistiky a počty pacientov. My ich ale využívať nebudeme, pretože by v Star schéme pôsobili duplicitne. Všetky potrebné agregácie si dokážeme vypočítať sami z detailných údajov vo faktovej tabuľke.
+**5/6. METRICS a VOLUME:** Tieto tabuľky obsahujú vopred vypočítané štatistiky a počty pacientov. V našom modeli ich nevyužívame, aby sme sa vyhli duplicite dát. Všetky potrebné výpočty a agregácie si budeme realizovať sami priamo z detailných údajov vo faktovej tabuľke.
 
 
 ## 1.1 ERD zdrojových dát
 
-V našom diagrame zdrojových dát sme tabuľky rozdelili podľa toho, ako spolu v skutočnosti fungujú. Najviac nás zaujíma trojica tabuliek: ceny (**NEGOTIATED_RATES**), popisy služieb (**SERVICE_DEFINITIONS**) a zoznam nemocníc (**PROVIDER_REFERENCES**). Tie sú navzájom prepojené a tvoria kostru nášho projektu.
+V našom diagrame zdrojových dát sme tabuľky rozdelili do logických celkov podľa toho, ako spolu v skutočnosti súvisia. Hlavnú kostru projektu tvorí trojica tabuliek: **NEGOTIATED_RATES** (ceny), **SERVICE_DEFINITIONS** (popisy služieb) a **PROVIDER_REFERENCES** (zoznam nemocníc). Tieto tabuľky sú navzájom prepojené cez identifikačné kódy, čo nám umožňuje spárovať konkrétnu cenu s konkrétnym úkonom a nemocnicou.
 
-Keďže sme si všimli, že v zozname nemocníc chýbajú informácie o tom, v akom meste a štáte sa nachádzajú, využijeme aj tabuľku ALL_RATES. Tá nám slúži ako "záloha", z ktorej si tieto chýbajúce údaje (mesto a štát) vytiahneme a doplníme ich tam, kam patria. Zvyšné tabuľky so štatistikami (METRICS a VOLUME) v diagrame nikam nepripájame, pretože tie informácie v nich sú už vopred vypočítané a my si ich chceme v našom modeli vypočítať sami nanovo.
+Ostatné tabuľky v diagrame stoja samostatne, pretože v tejto surovej podobe nemajú na hlavnú trojicu vytvorené priame väzby. Tabuľka **ALL_RATES** slúži ako denormalizovaný zdroj, z ktorého budeme neskôr čerpať chýbajúce informácie o lokalite nemocníc (CITY a STATE). Tabuľky **METRICS** a **VOLUME** obsahujú predbežné štatistické údaje, ktoré v našom finálnom modeli nebudeme priamo využívať, keďže si vlastné metriky vypočítame sami z detailných dát.
+
+<p align="center">
+  <img width="1158" height="890" alt="ERD_source_data" src="https://github.com/user-attachments/assets/b2a4b2ae-f80a-4ab1-8f59-fea037a5e160" />
+  <br>
+  <em><strong>Obrázok 1</strong> ERD zdrojových dát</em>
+</p>
+
+
