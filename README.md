@@ -1,8 +1,8 @@
-# ETL proces - Healthcare Pricing Analytics
+# ELT proces - Healthcare Pricing Analytics
 
 ## 1. Úvod a popis zdrojových dát
 ### Prečo sme si vybrali tento dataset a čo je cieľom?
-Pre náš projekt sme si vybrali dataset, ktorý zachytáva vyjednané zmluvné ceny za zdravotnícke úkony medzi poskytovateľmi starostlivosti a poisťovňami. Hlavným dôvodom bolo to, že nás zaujala téma cien v zdravotníctve. V USA je bežné, že za ten istý zákrok zaplatí každý inú podľa toho, v ktorej je nemocnici a akú má poisťovňu. Naším cieľom je tieto dáta upratať a pripraviť analýzu, ktorá ukáže, aké veľké sú rozdiely v týchto "vyjednaných" cenách.
+Pre náš projekt sme si vybrali dataset, ktorý zachytáva vyjednané zmluvné ceny za zdravotnícke úkony medzi poskytovateľmi starostlivosti a poisťovňami. Hlavným dôvodom bolo to, že nás zaujala téma cien v zdravotníctve. V USA je bežné, že za ten istý zákrok zaplatí každý inú cenu podľa toho, v ktorej je nemocnici a akú má poisťovňu. Naším cieľom je tieto dáta upratať a pripraviť analýzu, ktorá ukáže, aké veľké sú rozdiely v týchto "vyjednaných" cenách.
 
 Dáta zachytávajú proces dohadovania cien medzi nemocnicami a poisťovňami. Obsahuje informácie o tom, kto službu poskytuje, kto ju platí a na akej konečnej sume sa dohodli.
 
@@ -32,5 +32,75 @@ Ostatné tabuľky v diagrame stoja samostatne, pretože v tejto surovej podobe n
   <br>
   <em><strong>Obrázok 1</strong> ERD zdrojových dát</em>
 </p>
+
+## 2. Návrh a popis dimenzionálneho modelu
+
+V tejto časti navrhneme náš dimenzionálny model v štruktúre star schémy. Najprv si pripravíme dimenzie, teda tabuľky nemocníc, služieb a poisťovní. Keď budeme mať dimenzie hotové, vytvoríme hlavnú tabuľku faktov.
+
+### DIM_PROVIDER  
+Túto tabuľku sme vytvorili kombináciou dát zo zdrojových tabuliek `PROVIDER_REFERENCES` a `ALL_RATES` ->
+- `PROVIDER_ID` (**PK**): Unikátne číslo každého záznamu.
+- `PROVIDER_GROUP_ID`: Pôvodné ID zo zdroja (náš spojovací kľúč).
+- `PROVIDER_NAME`: Názov nemocnice (zo zdroja PROVIDER_REFERENCES).
+- `PROVIDER_TIN`: Daňové identifikačné číslo (zo zdroja PROVIDER_REFERENCES).
+- `CITY`: Mesto (vytiahnuté z ALL_RATES podľa `PROVIDER_GROUP_ID`).
+- `STATE`: Štát (vytiahnuté z ALL_RATES podľa `PROVIDER_GROUP_ID`).
+  
+**SCD**: Typ 1 - Ak sa zmení adresa alebo názov nemocnice, zväčša nás ten predošlí údaj nezaujíma a je pre nás dôležitý iba ten aktuálny.
+
+
+### DIM_SERVICE  
+Túto tabuľku sme vytvorili zo zdrojovej tabuľky `SERVICE_DEFINITIONS` ->
+- `SERVICE_ID` (**PK**): Unikátne číslo každého záznamu.
+- `SERVICE_DEFINITION_ID`: Pôvodné ID zo zdroja.
+- `BILLING_CODE`: Kód zákroku.
+- `BILLING_CODE_TYPE`: Typ kódu.
+- `NAME`: Názov lekárskeho úkonu.
+- `DESCRIPTION`: Popis lekárskeho úkonu.
+
+**SCD**: Typ 0 - Kódy a názvy zákrokov sú fixné medicínske štandardy.
+
+
+### DIM_PAYER  
+Túto tabuľku sme vytvorili kombináciou stĺpcov z `NEGOTIATED_RATES` a `METRICS` ->
+- `PAYER_ID` (**PK**): Unikátne číslo každého záznamu.
+- `PAYER_NAME`: Názov poisťovne.
+- `SEGMENT`: Typ trhu (napr. Individual, Medicare - vytiahnuté z `METRICS`).
+- `MARKET`: Región pôsobenia (vytiahnuté z `METRICS`).
+
+**SCD**: Typ 1 - Rovnaký prístup ako v prípade nemocnice.
+
+
+### DIM_DATE  
+Túto tabuľku sme vytvorili, aby sme mohli ceny a ich platnosť sledovať v čase -> 
+- `DATE_ID` (**PK**): Unikátne číslo každého záznamu.
+- `DATE`: Dátum.
+- `YEAR`: Rok.
+- `QUARTER`: Kvartál (Q1 – Q4).
+- `MONTH`: Názov mesiaca.
+- `IS_WEEKEND`: Stĺpec, ktorý hovorí o tom, či sa jedná o víkend.
+
+**SCD**: Typ 0 - Kalendár sa nemení, 1. január bude vždy 1. január.
+
+---
+
+### FACT_NEGOTIATED_RATES  
+Táto tabuľka spája všetky dimenzie s konkrétnymi dohodnutými cenami. Každý riadok predstavuje jednu unikátnu cenu za konkrétnu službu v danej nemocnici.
+- `FACT_ID` (**PK**): Unikátne číslo každého záznamu.
+- `PROVIDER_ID`: Odkaz na nemocnicu (prepojené na `DIM_PROVIDER`).
+- `SERVICE_ID`: Odkaz na lekársky úkon (prepojené na `DIM_SERVICE`).
+- `PAYER_ID`: Odkaz na poisťovňu (prepojené na `DIM_PAYER`).
+- `EXPIRATION_DATE_ID`: Odkaz na dátum expirácie ceny (prepojené na `DIM_DATE`).
+- `NEGOTIATED_RATE`: Samotná vyjednaná suma, ktorú poisťovňa platí nemocnici.
+WINDOW FUNCTIONS ->
+- `RATE_ORDER`: Tento stĺpec hovorí o tom v akom poradí je konkrétna cena v porovnaní s ostatnými pre tú istú službu.
+
+  ->`RANK() OVER (PARTITION BY SERVICE_ID ORDER BY NEGOTIATED_RATE ASC)`
+  
+- `MARKET_AVG`: Tento stĺpec zobrazuje priemernú cenu na celom trhu pre danú službu.
+
+  ->`AVG(NEGOTIATED_RATE) OVER (PARTITION BY SERVICE_ID)`
+
+
 
 
