@@ -67,8 +67,6 @@ Túto tabuľku sme vytvorili zo zdrojovej tabuľky `SERVICE_DEFINITIONS` ->
 Túto tabuľku sme vytvorili kombináciou stĺpcov z `NEGOTIATED_RATES` a `METRICS` ->
 - `PAYER_ID`(**INT**) (**PK**): Unikátne číslo každého záznamu.
 - `PAYER`(**VARCHAR(128)**): Názov poisťovne.
-- `SEGMENT`(**VARCHAR(128)**): Typ trhu (napr. Individual, Medicare - vytiahnuté z `METRICS`).
-- `MARKET`(**VARCHAR(128)**): Región pôsobenia (vytiahnuté z `METRICS`).
 - `NEGOTIATION_ARRANGEMENT`(**VARCHAR(64)**): Spôsob výpočtu ceny, napríklad či ide o fixnú sumu alebo o percentuálnu zľavu.
 
 **SCD**: Typ 1 - Rovnaký prístup ako v prípade nemocnice.
@@ -94,7 +92,6 @@ Táto tabuľka spája všetky dimenzie s konkrétnymi dohodnutými cenami. Každ
 - `SERVICE_ID`(**INT**): Odkaz na lekársky úkon (prepojené na `DIM_SERVICE`).
 - `PAYER_ID`(**INT**): Odkaz na poisťovňu (prepojené na `DIM_PAYER`).
 - `EXPIRATION_DATE_ID`(**INT**): Odkaz na dátum expirácie ceny (prepojené na `DIM_DATE`).
-- `CLAIM_COUNT`(**INT**): Celkový počet zrealizovaných medicínskych prípadov pre danú kombináciu poskytovateľa a služby (údaj vytiahnutý z tabuľky `VOLUME`).
 - `NEGOTIATED_RATE`(**NUMBER(15,3)**): Samotná vyjednaná suma, ktorú poisťovňa platí nemocnici.
 WINDOW FUNCTIONS ->
 - `RATE_ORDER`(**INT**): Tento stĺpec hovorí o tom v akom poradí je konkrétna cena v porovnaní s ostatnými pre tú istú službu.
@@ -364,5 +361,127 @@ Najdôležitejšou časťou transformácie vo faktovej tabuľke bolo použitie W
     **Význam:** To nám umožňuje okamžite porovnať konkrétnu cenu s priemerom danej služby v jednom riadku.
 
 Tieto transformácie sme vykonali priamo počas nahrávania dát.
+
+## 4. Vizualizácia dát  
+Dashboard obsahuje vizualizácie, ktoré poskytujú základný prehľad o vyjednaných cenách zdravotníckych služieb, poskytovateľoch a cenovej štruktúre trhu. Cieľom vizualizácií je odpovedať na dôležité analytické otázky, ako napríklad ktorí poskytovatelia ponúkajú najviac služieb alebo ako sa líšia ceny jednotlivých služieb v závislosti od ich poradia na trhu. 
+
+### 1. Počet služieb podľa poskytovateľov
+
+Ktorí poskytovatelia ponúkajú najväčší počet rôznych zdravotníckych služieb?
+**Použitý SQL dotaz:**  
+```sql
+SELECT
+    dp.PROVIDER_NAME,
+    COUNT(DISTINCT f.SERVICE_ID) AS SERVICE_COUNT
+FROM FACT_NEGOTIATIONS_RATE f
+JOIN DIM_PROVIDER dp ON f.PROVIDER_ID = dp.PROVIDER_ID
+GROUP BY dp.PROVIDER_NAME
+ORDER BY SERVICE_COUNT DESC
+LIMIT 20;
+```
+
+**Popis vizualizácie:**  
+Táto vizualizácia zobrazuje 20 poskytovateľov zdravotnej starostlivosti, ktorí majú v databáze evidovaný najväčší počet rôznych zdravotníckych služieb. Z údajov je zrejmé, že niektorí poskytovatelia pokrývajú výrazne širšie spektrum služieb než ostatní.
+
+### 2. Priemerná cena vs. poradie ceny pre jednotlivé služby  
+
+Ako sa mení priemerná vyjednaná cena služby v závislosti od jej poradia ceny na trhu?
+**Použitý SQL dotaz:**  
+```sql
+SELECT
+    ds.NAME AS service_name,
+    f.RATE_ORDER,
+    ROUND(AVG(f.NEGOTIATED_RATE), 2) AS avg_rate
+FROM FACT_NEGOTIATIONS_RATE f
+JOIN DIM_SERVICE ds ON f.SERVICE_ID = ds.SERVICE_ID
+GROUP BY ds.NAME, f.RATE_ORDER
+ORDER BY ds.NAME, f.RATE_ORDER;
+```
+
+**Popis vizualizácie:**  
+Táto vizualizácia zobrazuje vzťah medzi poradím ceny služby - `RATE_ORDER` a jej priemernou vyjednanou cenou. Poradie ceny určuje relatívnu pozíciu konkrétnej ceny medzi ostatnými cenami tej istej služby, kde hodnota 1 predstavuje najnižšiu cenu. Vizualizácia je prezentovaná formou heatmapy, kde každý riadok reprezentuje konkrétnu zdravotnícku službu a každý stĺpec predstavuje poradie ceny. Farebná intenzita buniek vyjadruje výšku priemernej ceny. 
+
+### 3. Cenové rozpätie služieb podľa poskytovateľov
+Ktorí poskytovatelia majú najväčší počet služieb a aké sú minimálne a maximálne ceny ich služieb?
+
+**Použitý SQL dotaz:**  
+```sql
+SELECT
+    dp.PROVIDER_NAME,
+    COUNT(DISTINCT f.SERVICE_ID) AS service_count,
+    MIN(f.NEGOTIATED_RATE) AS min_rate,
+    MAX(f.NEGOTIATED_RATE) AS max_rate
+FROM FACT_NEGOTIATIONS_RATE f
+JOIN DIM_PROVIDER dp ON f.PROVIDER_ID = dp.PROVIDER_ID
+GROUP BY dp.PROVIDER_NAME
+ORDER BY service_count DESC
+LIMIT 5;
+```
+
+**Popis vizualizácie:**  
+Táto vizualizácia zobrazuje päť poskytovateľov s najväčším počtom rôznych zdravotníckych služieb a zároveň ukazuje minimálnu a maximálnu vyjednanú cenu pre tieto služby. 
+
+---
+
+<p align="center">
+  <img width="976" height="436" alt="grafy_123" src="https://github.com/user-attachments/assets/28770c4f-3edd-4400-9fd1-4b4eca7fc48d" />
+  <br>
+  <strong>Obrázok 3</strong> Obrázky grafov 1, 2 a 3
+</p>
+
+---
+
+### 4. Top 10 miest s najvyššími priemernými cenami  
+V ktorých mestách v rámci štátu sú vyjednané ceny za zdravotnícke služby v priemere najvyššie?
+
+**Použitý SQL dotaz:**  
+```sql
+SELECT 
+    p.CITY AS Mesto,
+    ROUND(AVG(f.NEGOTIATED_RATE), 2) AS Priemerna_Cena
+FROM FACT_NEGOTIATIONS_RATE f
+JOIN DIM_PROVIDER p ON f.PROVIDER_ID = p.PROVIDER_ID
+GROUP BY p.CITY
+ORDER BY Priemerna_Cena DESC
+LIMIT 10;
+```
+
+**Popis vizualizácie:**  
+Táto vizualizácia identifikuje desať miest, v ktorých náš poisťovateľ vyjednal v priemere najvyššie ceny za poskytované služby. Pomáha nám pochopiť geografické rozdiely v nákladoch v rámci jedného štátu a určiť lokality, ktoré sú z hľadiska zdravotnej starostlivosti najnákladnejšie.
+
+<p align="center">
+  <img width="1088" height="429" alt="graf_4" src="https://github.com/user-attachments/assets/16887252-6229-43ac-a77a-a5b9e55e2214" />
+  <br>
+  <strong>Obrázok 3</strong> Obrázok grafu 4
+</p>
+
+---
+
+### 5. Analýza cenových rozdielov v rámci rovnakých služieb  
+Aké veľké sú rozdiely medzi najlacnejšou a najdrahšou vyjednanou cenou pre jednotlivé zdravotnícke úkony?
+
+```sql
+SELECT 
+    ds.NAME AS Sluzba,
+    MIN(f.NEGOTIATED_RATE) AS Najnizsia_Cena,
+    MAX(f.NEGOTIATED_RATE) AS Najvyssia_Cena,
+    (MAX(f.NEGOTIATED_RATE) - MIN(f.NEGOTIATED_RATE)) AS Rozdiel_v_Eurach
+FROM FACT_NEGOTIATIONS_RATE f
+JOIN DIM_SERVICE ds ON f.SERVICE_ID = ds.SERVICE_ID
+GROUP BY ds.NAME
+ORDER BY Rozdiel_v_Eurach DESC;
+```
+
+**Popis vizualizácie:** 
+Táto vizualizácia poukazuje na extrémnu variabilitu cien za identické lekárske úkony v rámci jedného štátu. Pre poisťovateľa je to kľúčový podklad pre optimalizáciu nákladov – identifikuje služby, pri ktorých by mal vyjednať lepšie podmienky s drahšími poskytovateľmi tak, aby sa priblížili k minimálnej cene na trhu.
+
+<p align="center">
+  <img width="1101" height="421" alt="graf_5" src="https://github.com/user-attachments/assets/68de25c6-01e3-4d21-81d9-8e9064533f73" />
+  <br>
+  <strong>Obrázok 3</strong> Obrázok grafu 5
+</p>
+
+
+
 
 
