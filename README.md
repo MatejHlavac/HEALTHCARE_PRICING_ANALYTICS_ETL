@@ -484,4 +484,9 @@ Táto vizualizácia poukazuje na extrémnu variabilitu cien za identické lekár
 
 
 
+---
+Matej Hlaváč, Patrik Samuel Šmilňák
+
+
+
 
